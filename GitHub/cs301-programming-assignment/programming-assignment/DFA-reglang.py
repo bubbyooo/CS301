@@ -38,6 +38,18 @@ print(f"Alphabet: {alphabet_list}, Delta: {delta_list}, F: {F}")
 
 DFA = [alphabet_list, delta_list, F]
 
+
+def simplify(alpha1, alpha2, alpha3, alpha4):
+    # Rule 9.9
+    term2 = ""
+    if alpha2 == null or alpha3 == null or alpha4 == null:
+        term2 = null
+    else:
+        term2 = f"{alpha2}({alpha3})*{alpha4}"
+    return f"{alpha1} + {term2}"
+
+
+
 def alpha_construction_step(A, u, v):
     print(f"path from {u} to {v} through {A}")
     # Base cases
@@ -78,8 +90,9 @@ def alpha_construction_step(A, u, v):
     # Recursive case
     q = A[-1]
     state_step = state_index[len(A)-1]
-    return alpha_construction_step(state_step, u, v) + " + " + alpha_construction_step(state_step, u, q) + \
-        "(" + alpha_construction_step(state_step, q, q) + ")*" + alpha_construction_step(state_step, q, v)
+
+    return simplify(alpha_construction_step(state_step, u, v), alpha_construction_step(state_step, u, q),
+        alpha_construction_step(state_step, q, q), alpha_construction_step(state_step, q, v))
 
 
 regular_expression = ""
