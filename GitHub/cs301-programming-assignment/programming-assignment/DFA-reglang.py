@@ -2,131 +2,123 @@
 # CS301 Programming Assignment
 # October 13, 2025
 
-
 epsilon = '\u03B5'
 null = '\u2205'
 
-# Generate alphabet
-alphabet = input("Enter alphabet elements. Exclude all brackets, commas, and spaces. ")
-alphabet_list = []
-for element in alphabet:
-    alphabet_list.append(element)
+def deep_copy(d):
+    return {r: {concatenation: v for concatenation, v in row.items()} for r, row in d.items()}
 
-# Generates transition functions and list of lists to pass in as A
-more_states = 'y'
-state = 0
-state_index = [[]]      # List of lists to pass in as A
-delta_list = []
-while more_states == 'y':
-    temp_delta = input(
-        f"Enter transition function for state {state}. Use space-separated integers. "
-    ).strip().split()
-    state_index.append(list(range(0, state + 1)))
-    state += 1
-    temp_delta_list = [int(x) for x in temp_delta]  # <-- keep only this
-    delta_list.append(temp_delta_list)
-    more_states = input("Enter another state? (y/n) ")
+def parenthesize(x):
+    if x in (null, epsilon, ''): return x
+    for ch in x:
+        if ch in '+()*|':
+            return f'({x})'
+    return x
 
+def union(a, b):
+    if a in (null, ''): return b
+    if b in (null, ''): return a
+    if a == b: return a
+    return f'{a}+{b}'
 
-accepting_states = input("Enter accepting states (space-separated integers). ").strip().split()
-F = [int(x) for x in accepting_states]
+def concatenation(a, b):
+    if null in (a, b): return null
+    if a == epsilon: return b
+    if b == epsilon: return a
+    return a + b
 
-print(f"Alphabet: {alphabet_list}, Delta: {delta_list}, F: {F}")
+def kleene_star(x):
+    if x in (null, epsilon, ''): return epsilon
+    return x if x.endswith('*') else f'{parenthesize(x)}*'
 
+class DFA:
+    def __init__(self, states, alphabets, init_state, final_states, transition_funct):
+        self.states = list(states)
+        self.alphabets = list(alphabets)
+        self.init_state = init_state
+        self.final_states = list(final_states)
+        self.transition_funct = transition_funct
+        self.ds = {}
+        self.seed()
 
-DFA = [alphabet_list, delta_list, F]
+    def seed(self):
+        ds = {r: {concatenation: null for concatenation in self.states} for r in self.states}
+        for i in self.states:
+            nxt = self.transition_funct[i]
+            for k, j in enumerate(nxt):
+                ds[i][j] = union(ds[i][j], str(self.alphabets[k]))
+        self.ds = ds
+        self._orig = deep_copy(ds)
 
+    def preds(self, kleene_star):
+        return [r for r, row in self.ds.items() if r != kleene_star and row.get(kleene_star, null) != null]
 
-def simplify(a1, a2, a3, a4):
-    EPS, NULL = epsilon, null
-    s = lambda x: (x or "").strip()
-    is_eps = lambda x: s(x) == EPS
-    is_null = lambda x: s(x) == NULL
+    def succs(self, kleene_star):
+        return [concatenation for concatenation, v in self.ds[kleene_star].items() if concatenation != kleene_star and v != null]
 
-    def strip_parens(x):
-        x = s(x)
-        if len(x) >= 2 and x[0] == '(' and x[-1] == ')':
-            d = 0
-            for i, ch in enumerate(x):
-                if ch == '(': d += 1
-                elif ch == ')': d -= 1
-                if d == 0 and i != len(x) - 1: return x
-            return x[1:-1]
-        return x
+    def eliminate(self, k):
+        Rkk = self.ds[k][k]
+        sk = kleene_star(Rkk) if Rkk != '' else epsilon
+        for i in self.preds(k):
+            Rik = self.ds[i][k]
+            for j in self.succs(k):
+                Rkj = self.ds[k][j]
+                self.ds[i][j] = union(self.ds[i][j], concatenation(concatenation(parenthesize(Rik), sk), parenthesize(Rkj)))
+        # remove k
+        self.ds = {r: {concatenation: v for concatenation, v in row.items() if concatenation != k} for r, row in self.ds.items() if r != k}
+        self.states = [kleene_star for kleene_star in self.states if kleene_star != k]
 
-    def has_top_plus(x):
-        x = s(x); d = 0
-        for ch in x:
-            if ch == '(': d += 1
-            elif ch == ')': d -= 1
-            elif ch == '+' and d == 0: return True
-        return False
+    def to_regex(self):
+        # Start from the original adjacency
+        base = deep_copy(self._orig)
+        base_states = list(base.keys())
 
-    def par_if_union(x):
-        x = s(x)
-        return f"({x})" if x and (has_top_plus(x) or is_null(x)) else x
+        # Pick fresh names for super start/accept
+        S0, T0 = '__S__', '__T__'
+        while S0 in base_states or T0 in base_states:
+            S0, T0 = '_' + S0, '_' + T0
 
-    def plus(x, y):
-        x, y = s(x), s(y)
-        if is_null(x): return y
-        if is_null(y): return x
-        if x == y:     return x
-        return f"{x} + {y}"
+        # Build GNFA matrix with S0 and T0
+        self.states = [S0] + base_states + [T0]
+        self.ds = {r: {concatenation: null for concatenation in self.states} for r in self.states}
+        # copy original edges
+        for r in base_states:
+            for concatenation in base_states:
+                self.ds[r][concatenation] = base[r][concatenation]
+        # ε from S0 to init
+        self.ds[S0][self.init_state] = union(self.ds[S0][self.init_state], epsilon)
+        # ε from each final to T0
+        for f in self.final_states:
+            self.ds[f][T0] = union(self.ds[f][T0], epsilon)
+        # if init is final, allow ε directly S0->T0 (empty path)
+        if self.init_state in self.final_states:
+            self.ds[S0][T0] = union(self.ds[S0][T0], epsilon)
 
-    def cat(x, y):
-        x, y = s(x), s(y)
-        if is_null(x) or is_null(y): return NULL
-        if is_eps(x): return y
-        if is_eps(y): return x
-        return par_if_union(x) + par_if_union(y)
+        # Eliminate everything except S0 and T0
+        for k in list(self.states):
+            if k not in (S0, T0):
+                self.eliminate(k)
 
-    def star(x):
-        x = strip_parens(x)
-        if is_null(x) or is_eps(x): return EPS
-        return (x if (len(x) == 1 or x.startswith('(')) else f"({x})") + "*"
+        # Resulting regex is the single edge S0->T0
+        return self.ds[S0][T0]
 
-    term2 = cat(cat(strip_parens(a2), star(a3)), strip_parens(a4))
-    return strip_parens(plus(strip_parens(a1), term2))
+def main():
+    alph = list(input("Enter alphabet elements. Exclude all brackets, commas, and spaces. "))
+    delta_int, delta_str, kleene_star = [], [], 0
+    while True:
+        row = input(f"Enter transition function for state {kleene_star}. Exclude all brackets, commas, and spaces. ").strip()
+        if len(row) != len(alph): row = (row + '0'*len(alph))[:len(alph)]
+        ints = [int(ch) for ch in row]; delta_int.append(ints); delta_str.append([str(x) for x in ints])
+        kleene_star += 1
+        if input("Enter another state? (y/n) ").strip().lower() != 'y': break
+    Fs = input("Enter accepting states. Exclude all brackets, commas, and spaces. ").strip()
+    F_int = [int(ch) for ch in Fs] if Fs else []
+    states = [str(i) for i in range(len(delta_str))]
+    trans = {states[i]: delta_str[i] for i in range(len(states))}
+    print(f"Alphabet: {alph}, Delta: {delta_int}, F: {F_int}")
+    if not F_int: print(null); return
+    dfa = DFA(states, alph, "0", [str(x) for x in F_int], trans)
+    print(dfa.to_regex())
 
-def alpha_construction_step(A, u, v): # EDIT
-    """
-    α_A(u,v): regular expression for all paths from u to v using only
-    intermediate states from the set/list A (by your convention: A is a
-    prefix of [0,1,...,k] and we always remove the last state).
-    """
-
-    # Collect all alphabet symbols that realize the single-step transition u -> v
-    def symbols_for(u_, v_):
-        syms = [alphabet_list[i] for i, dest in enumerate(delta_list[u_]) if dest == v_]
-        return " + ".join(syms)
-
-    # Base: no intermediates allowed
-    if len(A) == 0:
-        syms = symbols_for(u, v)
-        if u == v:
-            # α_∅(u,u) = (a1 + a2 + ... + ε) if any self-loop symbols; else ε
-            return f"({syms} + {epsilon})" if syms else epsilon
-        else:
-            # α_∅(u,v) = (a1 + a2 + ...) if any direct edges; else ∅
-            return f"({syms})" if syms else null
-
-    # Recursive step: remove the last state q in A
-    q = A[-1]
-    state_step = state_index[len(A) - 1]   # A without q, by your construction
-
-    # α_A(u,v) = α_{A\{q}}(u,v) + α_{A\{q}}(u,q) (α_{A\{q}}(q,q))* α_{A\{q}}(q,v)
-    return simplify(
-        alpha_construction_step(state_step, u, v),
-        alpha_construction_step(state_step, u, q),
-        alpha_construction_step(state_step, q, q),
-        alpha_construction_step(state_step, q, v),
-    )
-
-
-parts = []
-for f in F:
-    r = alpha_construction_step(state_index[-1], 0, f)
-    if r != null:
-        parts.append(r)
-regular_expression = " + ".join(parts) if parts else null
-print(regular_expression)
+if __name__ == '__main__':
+    main()
