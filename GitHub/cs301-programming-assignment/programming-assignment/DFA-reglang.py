@@ -6,7 +6,13 @@ epsilon = '\u03B5'
 null = '\u2205'
 
 def deep_copy(d):
-    return {r: {concatenation: v for concatenation, v in row.items()} for r, row in d.items()}
+    out = {}
+    for r, row in d.items():
+        new_row = {}
+        for c, v in row.items():
+            new_row[c] = v
+        out[r] = new_row
+    return out
 
 def parenthesize(x):
     if x in (null, epsilon, ''): return x
@@ -50,25 +56,33 @@ class DFA:
         self.ds = ds
         self._orig = deep_copy(ds)
 
-    def preds(self, kleene_star):
-        return [r for r, row in self.ds.items() if r != kleene_star and row.get(kleene_star, null) != null]
+    def incoming_states(self, s):
+        out = []
+        for r, row in self.ds.items():
+            if r != s and (s in row) and row[s] != null:
+                out.append(r)
+        return out
 
-    def succs(self, kleene_star):
-        return [concatenation for concatenation, v in self.ds[kleene_star].items() if concatenation != kleene_star and v != null]
+    def outgoing_states(self, s):
+        out = []
+        for c, v in self.ds[s].items():
+            if c != s and v != null:
+                out.append(c)
+        return out
 
     def eliminate(self, k):
         Rkk = self.ds[k][k]
         sk = kleene_star(Rkk) if Rkk != '' else epsilon
-        for i in self.preds(k):
+        for i in self.incoming_states(k):
             Rik = self.ds[i][k]
-            for j in self.succs(k):
+            for j in self.outgoing_states(k):
                 Rkj = self.ds[k][j]
                 self.ds[i][j] = union(self.ds[i][j], concatenation(concatenation(parenthesize(Rik), sk), parenthesize(Rkj)))
         # remove k
         self.ds = {r: {concatenation: v for concatenation, v in row.items() if concatenation != k} for r, row in self.ds.items() if r != k}
         self.states = [kleene_star for kleene_star in self.states if kleene_star != k]
 
-    def to_regex(self):
+    def convert(self):
         # Start from the original adjacency
         base = deep_copy(self._orig)
         base_states = list(base.keys())
@@ -118,7 +132,7 @@ def main():
     print(f"Alphabet: {alph}, Delta: {delta_int}, F: {F_int}")
     if not F_int: print(null); return
     dfa = DFA(states, alph, "0", [str(x) for x in F_int], trans)
-    print(dfa.to_regex())
+    print(dfa.convert())
 
 if __name__ == '__main__':
     main()
