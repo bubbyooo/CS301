@@ -2,100 +2,130 @@
 # CS301 Programming Assignment
 # October 13, 2025
 
+# Converting DFA to regular expression
+# We *almost* correctly calculate the regular expression.
+# Any alphabet can be used. We simplify and eliminate
+# unnecessary parentheses.
+
 
 epsilon = '\u03B5'
 null = '\u2205'
 
-# Generate alphabet
-alphabet = input("Enter alphabet elements. Exclude all brackets, commas, and spaces. ")
-alphabet_list = []
-for element in alphabet:
-    alphabet_list.append(element)
+# Regular expression helpers 
+def union(a, b):
+    if a in (null, ''): return b
+    if b in (null, ''): return a
+    if a == b: return a
+    # Flatten nested unions and remove duplicates
+    terms = []
+    for part in [a, b]:
+        if part.startswith('(') and part.endswith(')') and '+' in part:
+            part = part[1:-1]
+        for t in part.split('+'):
+            if t not in terms:
+                terms.append(t)
+    return '+'.join(terms) if len(terms) == 1 else '(' + '+'.join(terms) + ')'
 
-# Generates transition functions and list of lists to pass in as A
-more_states = 'y'
-state = 0
-state_index = [[]]      # List of lists to pass in as A
-delta_list = []
-while(more_states == 'y'):
-    temp_delta = input(f"Enter transition function for state {state}. Exclude all brackets, commas, and spaces. ")
-    state_index.append(list(range(0,state+1)))
-    state += 1
-    temp_delta_list = []
-    for element in temp_delta:
-        temp_delta_list.append(int(element))
-    delta_list.append(temp_delta_list)
-    more_states = input("Enter another state? (y/n) ")
+def concatenate(a, b):
+    if null in (a, b): return null
+    if a == epsilon: return b
+    if b == epsilon: return a
+    # Remove unnecessary parentheses if safe
+    if a.startswith('(') and a.endswith(')') and '+' not in a:
+        a = a[1:-1]
+    if b.startswith('(') and b.endswith(')') and '+' not in b:
+        b = b[1:-1]
+    return a + b
 
+def kleene_star(x):
+    if x in (null, epsilon, ''): 
+        return epsilon
 
-accepting_states = input("Enter accepting states. Exclude all brackets, commas, and spaces. ")
-F = []
-for element in accepting_states:
-    F.append(int(element))
-
-print(f"Alphabet: {alphabet_list}, Delta: {delta_list}, F: {F}")
-
-
-DFA = [alphabet_list, delta_list, F]
-
-
-def simplify(alpha1, alpha2, alpha3, alpha4):
-    # Rule 9.9
-    term2 = ""
-    if alpha2 == null or alpha3 == null or alpha4 == null:
-        term2 = null
-    else:
-        term2 = f"{alpha2}({alpha3})*{alpha4}"
-    return f"{alpha1} + {term2}"
-
-
-
-def alpha_construction_step(A, u, v):
-    print(f"path from {u} to {v} through {A}")
-    # Base cases
-    if len(A) == 0:
-        # Base case 1
-        if u == v:
-            self_string = ""
-            for element in delta_list[u]:
-                if element == v:
-                    if self_string == "":
-                        self_string += alphabet_list[delta_list[u].index(element)]
-                    else:
-                        self_string += f" + {alphabet_list[delta_list[u].index(element)]}"
-            if self_string == "":
-                print(f"BC1 empty -- self_string: {self_string}")
-                return epsilon
-            else:
-                print(f"BC1 ne -- self_string: {self_string}")
-                return f"({self_string} + {epsilon})"
-        # Base case 2 + 3
+    # Remove outer parentheses if they wrap a top-level union
+    if x.startswith('(') and x.endswith(')') and '+' in x:
+        inner = x[1:-1]
+        terms = inner.split('+')
+        # Remove ε from union
+        terms = [t for t in terms if t != epsilon]
+        if not terms:
+            return epsilon
+        elif len(terms) == 1:
+            x = terms[0]
         else:
-            self_string = ""
-            for element in delta_list[u]:
-                if element == v:
-                    if self_string == "":
-                        self_string += alphabet_list[delta_list[u].index(element)]
-                    else:
-                        self_string += f" + {alphabet_list[delta_list[u].index(element)]}"
-            # Base case 3
-            if self_string == "":
-                print(f"BC3 -- self_string: {self_string}")
-                return null
-            # Base case 2
-            else:
-                print(f"BC2 -- self_string: {self_string}")
-                return f"({self_string})"
-            
-    # Recursive case
-    q = A[-1]
-    state_step = state_index[len(A)-1]
+            x = '(' + '+'.join(terms) + ')'
 
-    return simplify(alpha_construction_step(state_step, u, v), alpha_construction_step(state_step, u, q),
-        alpha_construction_step(state_step, q, q), alpha_construction_step(state_step, q, v))
+    # Remove unnecessary parentheses for single symbols
+    if x.startswith('(') and x.endswith(')') and '+' not in x:
+        x = x[1:-1]
 
+    return f"{x}*"
 
-regular_expression = ""
-for state in F:
-    regular_expression += alpha_construction_step(state_index[-1], 0, state)
-print(regular_expression)
+# Input DFA 
+alphabet = input("Enter alphabet elements (e.g., 01 for {0,1}): ")
+alphabet_list = [c for c in alphabet]
+
+num_states = int(input("Enter number of states (0..n-1): "))
+delta_list = []
+
+for state in range(num_states):
+    temp = input(f"Enter transitions for state {state} as comma-separated destination states for each alphabet symbol: ")
+    temp_delta = [int(x) for x in temp.split(',')]
+    delta_list.append(temp_delta)
+
+accepting_states = input("Enter accepting states as comma-separated integers: ")
+F = [int(x) for x in accepting_states.split(',')]
+
+# Add temp start and temp final states 
+temp_start = num_states
+temp_final = num_states + 1
+
+# Expand delta_list for temp states
+delta_list.append([null]*len(alphabet_list))  # temp start
+delta_list.append([null]*len(alphabet_list))  # temp final
+
+# Update number of states
+num_states += 2
+all_states = list(range(num_states))
+
+# Initialize Regular expression matrix R[u][v] 
+R = [[null for _ in range(num_states)] for _ in range(num_states)]
+
+# Fill R with original transitions
+for u in range(len(delta_list)-2):  # original states
+    for i, v in enumerate(delta_list[u]):
+        symbol = alphabet_list[i]
+        if R[u][v] == null:
+            R[u][v] = symbol
+        else:
+            R[u][v] = union(R[u][v], symbol)
+    R[u][u] = union(R[u][u], epsilon)  # self-loop
+
+# temp start points to real start (state 0) via epsilon
+R[temp_start][0] = epsilon
+
+# All accepting states point to temp final via epsilon
+for f in F:
+    R[f][temp_final] = epsilon
+
+# State elimination 
+# Eliminate all states except temp start and temp final
+for q in all_states:
+    if q in (temp_start, temp_final):
+        continue
+    for i in all_states:
+        if i == q:
+            continue
+        for j in all_states:
+            if j == q:
+                continue
+            R[i][j] = union(R[i][j], concatenate(concatenate(R[i][q], kleene_star(R[q][q])), R[q][j]))
+    # Remove outgoing/incoming transitions of eliminated state
+    for k in all_states:
+        R[k][q] = null
+        R[q][k] = null
+
+# Final Regular expression 
+reg_exp = R[temp_start][temp_final]
+
+print("\nFinal Regular Expression:")
+print(reg_exp)
